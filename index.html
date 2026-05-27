@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<script>if(sessionStorage.getItem('acr_auth')!=='ok'&&!['localhost','127.0.0.1'].includes(location.hostname)){location.replace('https://john-corredor-coffee.github.io/atomic-dashboard/?return='+encodeURIComponent(location.href));}</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Atomic Coffee — Wholesale Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{display:flex;height:100vh;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;background:#1a1a1a;}
+#sidebar{width:280px;min-width:280px;background:#1e1e1e;color:#e0e0e0;display:flex;flex-direction:column;overflow:hidden;border-right:1px solid #333;}
+#sidebar-header{padding:14px 16px 10px;border-bottom:1px solid #333;flex-shrink:0;}
+#sidebar-header h1{font-size:15px;font-weight:700;color:#fff;letter-spacing:0.02em;}
+#sidebar-header p{font-size:11px;color:#888;margin-top:2px;}
+#sidebar-scroll{flex:1;overflow-y:auto;padding:10px 12px;}
+#sidebar-scroll::-webkit-scrollbar{width:4px;}
+#sidebar-scroll::-webkit-scrollbar-thumb{background:#444;border-radius:2px;}
+.filter-section{margin-bottom:14px;}
+.filter-section h3{font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#777;margin-bottom:7px;padding-bottom:5px;border-bottom:1px solid #2a2a2a;}
+.filter-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px;}
+.filter-btn{background:#2a2a2a;border:1px solid #3a3a3a;border-radius:4px;color:#ccc;padding:5px 8px;cursor:pointer;font-size:11px;text-align:left;display:flex;align-items:center;gap:6px;transition:all .15s;}
+.filter-btn:hover{background:#333;}
+.filter-btn.active{background:#333;border-color:#555;color:#fff;}
+.filter-btn .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+.filter-btn .count{margin-left:auto;font-size:10px;color:#666;font-variant-numeric:tabular-nums;}
+.filter-btn.active .count{color:#999;}
+#all-btn{grid-column:1/-1;background:#262626;justify-content:center;font-size:11.5px;font-weight:600;color:#bbb;padding:6px;}
+#all-btn.active{background:#3a3a3a;color:#fff;}
+#progress-bar{background:#2a2a2a;border-top:1px solid #333;padding:8px 12px;flex-shrink:0;}
+#progress-bar p{font-size:10px;color:#666;margin-bottom:4px;}
+#progress-track{background:#333;border-radius:2px;height:3px;}
+#progress-fill{background:#4CAF50;border-radius:2px;height:100%;width:0%;transition:width .3s;}
+#progress-text{font-size:10px;color:#555;margin-top:3px;}
+#map{flex:1;}
+.leaflet-popup-content-wrapper{border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.25);}
+.leaflet-popup-content{font-size:12px;line-height:1.5;padding:2px 0;}
+.leaflet-popup-content b{font-size:13px;display:block;margin-bottom:4px;color:#1a1a1a;}
+.popup-tag{display:inline-block;background:#eee;border-radius:3px;padding:1px 6px;font-size:10px;margin:2px 2px 0 0;}
+.popup-category{font-size:11px;color:#666;margin-bottom:3px;}
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <div id="sidebar-header">
+    <h1>☕ Wholesale Map</h1>
+    <p id="stats-line">Loading locations…</p>
+  </div>
+  <div id="sidebar-scroll">
+    <div class="filter-section">
+      <h3>Account Type</h3>
+      <div class="filter-grid" id="type-filters"></div>
+    </div>
+    <div class="filter-section">
+      <h3>Delivery Day</h3>
+      <div class="filter-grid" id="day-filters"></div>
+    </div>
+  </div>
+  <div id="progress-bar">
+    <p>Geocoding addresses…</p>
+    <div id="progress-track"><div id="progress-fill"></div></div>
+    <p id="progress-text">0 / 0 geocoded</p>
+  </div>
+</div>
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ─── RAW LOCATION DATA ────────────────────────────────────────────────────────
+// [company, location_override, address1, address2, city, state, zip, tags_csv]
+// location_override="" means use company name
+const RAW = [
+["American Food & Vending","","450 Wildwood Avenue","","Woburn","MA","01801",""],
+["Atkins Farms","","1150 West St","","Amherst","MA","01002",""],
+["Aramark Services","Applied Materials Inc","35 Dory Rd","","Gloucester","MA","01930","local-dlv,standard-cafe-cans-dlv,Wednesday"],
+["Aramark Services","State Street – CCB Iron St","Medallion Ave","","Boston","MA","02131","local-dlv,standard-cafe-cans-dlv,Wednesday"],
+["Aramark Services","State Street – One Congress","One Congress","","Boston","MA","02114","local-dlv,standard-cafe-cans-dlv,Wednesday"],
+["Aramark Services","State Street – JAB Heritage","Enterprise Drive","","Quincy","MA","02171","local-dlv,standard-cafe-cans-dlv,Wednesday"],
+["Aramark Services","Dean College","99 Main Street","","Franklin","MA","02038","local-dlv,standard-cafe-cans-dlv,Wednesday"],
+["Aramark Services","State Street – SSFC Lincoln","19 Lincoln St","","Boston","MA","02111","local-dlv,standard-cafe-cans-dlv,Wednesday"],
+["Aramark Services","UMass Lowell – Fox Hall","100 Pawtucket Street","","Lowell","MA","01854","local-dlv,standard-cafe-cans-dlv,Wednesday"],
+["Aramark Services","UMass Lowell – South Dining","71 Wilder Street","","Lowell","MA","01854","local-dlv,standard-cafe-cans-dlv,Wednesday"],
+["Aramark Services","UMass Lowell – Merrimack Mkt","71 Wilder Street","","Lowell","MA","01854","local-dlv,standard-cafe-cans-dlv,Wednesday"],
+["Atomic Cafe","","268 Cabot St","","Beverly","MA","01915","friday,local-dlv,standard-cafe-cans-kegs,atomic-cafe"],
+["Bambolina Restaurant","","288 Derby Street","","Salem","MA","01970","friday,local-dlv,standard-cafe-cans-dlv"],
+["Barismo","","171 Massachusetts Avenue","","Boston","MA","02115","copack,Pick-up"],
+["Basic Batch Donuts","","206 E Main St","","Milford","MA","01757","local-dlv,monday,standard-cafe-cans-dlv"],
+["BE EZ","","15 Union St","","Lawrence","MA","01840","local-dlv,standard-cafe-cans-kegs,Tuesday"],
+["Birch Coffee Roasters","","3720 48th Ave","","Long Island City","NY","11101","copack,Pick-up"],
+["Black Sheep Market","","117r Magazine Street","","Cambridge","MA","02139","local-dlv,standard-cafe-cans-dlv,Thursday"],
+["Blue Canoe Cafe","","14 School Street","","Marblehead","MA","01945","friday,local-dlv,standard-cafe-cans-kegs"],
+["Boston Bean","","23 Draper Street","","Woburn","MA","01801","boston-bean-catalog,local-dlv,Thursday"],
+["Bluebird Mobile Baking Company","","5 Horseshoe Ln","","South Hamilton","MA","01982","friday,local-dlv,standard-cafe-cans-dlv"],
+["Bozzutos","","400 Industrial Ave","","Cheshire","CT","06410","Pick-up"],
+["Brothers & Sisters Cafe","","7 Station St","","Brookline","MA","02445","local-dlv,standard-cafe-cans-dlv,Wednesday"],
+["Break'n Bread Sandwich Shoppe","","1130 Voluntown Road","","Griswold","CT","06351","Ship,standard-cafe-cans-ship"],
+["C-4 Analytics","","701 Edgewater Dr","","Wakefield","MA","01880","friday,local-dlv,standard-cafe-cans-kegs"],
+["Cell Signaling Technologies","CST – Tozer Rd","32 Tozer Road","","Beverly","MA","01915","friday,local-dlv,standard-cafe-cans-kegs"],
+["Cell Signaling Technologies","CST – Trask Ln","3 Trask Lane","","Danvers","MA","01923","friday,local-dlv,standard-cafe-cans-kegs"],
+["Cake Ann","","63 Rogers St","","Gloucester","MA","01930","friday,local-dlv,standard-cafe-cans-dlv"],
+["Castle Island Brewing","South Boston","10 Old Colony Ave","","South Boston","MA","02127","local-dlv,standard-cafe-cans-dlv,Wednesday"],
+["Castle Island Brewing","Norwood","31 Astor Avenue","","Norwood","MA","02062","local-dlv,standard-cafe-cans-dlv,Wednesday"],
+["Castle Manor Inn","","141 Essex Ave","","Gloucester","MA","01930","friday,local-dlv,standard-cafe"],
+["CB Fisk","","21 Kondelin Rd","","Gloucester","MA","01930",""],
+["Cafe Services","Thermo Fisher Scientific","168 3rd Avenue","","Waltham","MA","02451",""],
+["Cafe Services","Timberland","200 Domain Drive","","Stratham","NH","03885",""],
+["Cafe Services","Schneider Electric","800 Federal Street","","Andover","MA","01810",""],
+["Cafe Services","Axcelis Technologies","108 Cherry Hill Drive","","Beverly","MA","01915",""],
+["Cafe Services","Cabot Cafe","1 Cabot Road","","Medford","MA","02155",""],
+["Cafe Services","Wellesley Office Park","55 William Street","","Wellesley","MA","02481",""],
+["Cafe Services","Amazon Westborough","50 Otis Street","","Westborough","MA","01581",""],
+["Cafe Services","930 Winter Street","930 Winter Street","","Waltham","MA","02451",""],
+["Coastal Provisions","","142 Arnold St","","New Bedford","MA","02740","local-market-cans,Ship,standard-cafe-cans-ship"],
+["Compass Group","Atlantic Coffee","267 Libbey Industrial Parkway","","Weymouth","MA","02189",""],
+["Compass Group","Canteen Wilmington","26 Upton Dr","","Wilmington","MA","01887",""],
+["Compass Group","Delta One Lounge","290 William F McClellan Highway","","Boston","MA","02128",""],
+["Corinthian Yacht Club","","1 Nahant St","","Marblehead","MA","01945","friday,local-dlv,standard-cafe-pp-cans-kegs"],
+["Coordinates Operations","","201 Spring Street","","Lexington","MA","02421","local-dlv,monday,standard-cafe-cans-kegs"],
+["Crossfit Lando","","545 Medford Street","","Boston","MA","02129","local-dlv,standard-cafe-cans-kegs,Thursday"],
+["CrossFit Five Plus","","100 Cummings Center","Suite 135-E","Beverly","MA","01915","friday,local-dlv,standard-cafe-cans-kegs"],
+["CrossFit Ares","","10 Upton Drive","","Wilmington","MA","01887","local-dlv,standard-cafe-cans-kegs,Thursday"],
+["Daily Harvest","","103 High St","","Danvers","MA","01923","friday,local-dlv,standard-cafe-cans-kegs"],
+["Davidson Specialty Foods","","47 Old Ferry Rd","","Brattleboro","VT","05301","Pick-up"],
+["EDEX Provisions","","50 Main Street","","Peabody","MA","01960","friday,local-dlv,standard-cafe-cans-kegs"],
+["Dorchester Brewing Company","","1250 Massachusetts Avenue","","Boston","MA","02125","local-dlv,standard-cafe-cans-dlv,Wednesday"],
+["Fat Larry's","","169 Haven St","","Reading","MA","01867","local-dlv,standard-cafe-cans-kegs,Thursday"],
+["Farmer in the Dell","","935 East St","","Walpole","MA","02081",""],
+["Crosby's Markets","Concord","211 Sudbury Road","","Concord","MA","01742",""],
+["Crosby's Markets","Georgetown","62 Central Street","","Georgetown","MA","01833",""],
+["Crosby's Markets","Manchester-by-the-Sea","3 Summer St","","Manchester-by-the-Sea","MA","01944",""],
+["Crosby's Markets","Marblehead","114 Washington St","","Marblehead","MA","01945",""],
+["Crosby's Markets","Hamilton","15 Walnut Road","","Hamilton","MA","01982",""],
+["Crosby's Markets","Salem","125 Canal St","","Salem","MA","01970",""],
+["Crosby's Markets","Henry's Beverly","588 Cabot St","","Beverly","MA","01915",""],
+["Form Energy","30 Dane Street","30 Dane Street","","Somerville","MA","02143","local-dlv,standard-cafe-cans-dlv,Thursday"],
+["Form Energy","200 Inner Belt Road","200 Innerbelt Rd","","Somerville","MA","02143","local-dlv,standard-cafe-cans-dlv,Thursday"],
+["Formaggio Kitchen","Huron Ave","358 Huron Avenue","","Cambridge","MA","02138","local-dlv,standard-cafe-cans-dlv,Thursday"],
+["Formaggio Kitchen","Kendall","94 Hampshire St","","Cambridge","MA","02139","local-dlv,standard-cafe-cans-dlv,Thursday"],
+["Formaggio Kitchen","South End","268 Shawmut Avenue","","Boston","MA","02118","local-dlv,standard-cafe-cans-dlv,Thursday"],
+["FormLabs","Medford St","35 Medford Street","","Somerville","MA","02143","local-dlv,standard-cafe-cans-kegs,Thursday"],
+["FormLabs","Twin City Plaza","22 McGrath Hwy","","Somerville","MA","02143","local-dlv,standard-cafe-cans-kegs,Thursday"],
+["Gourmet Caterers","HQ","931 Hyde Park Avenue","","Boston","MA","02136",""],
+["Gourmet Caterers","MFS Investment Management","111 Huntington Ave","","Boston","MA","02199",""],
+["Gourmet Caterers","Moakley Courthouse","1 Courthouse Way","","Boston","MA","02210",""],
+["Gourmet Caterers","Peabody Essex Museum","50 Charter Street","","Salem","MA","01930",""],
+["Gourmet Caterers","Assembly On 2","100 Summer Street","","Boston","MA","02110",""],
+["Green Apple Cafe","","57 Water St","","North Andover","MA","01845","local-dlv,standard-cafe-cans-dlv,Tuesday"],
+["Halstead Apartments","Beverly","201 Broughton Dr","","Beverly","MA","01915","friday,local-dlv,standard-cafe-cans-kegs"],
+["Halstead Apartments","Salem","72 Flint Street","","Salem","MA","01970","friday,local-dlv,standard-cafe-cans-kegs"],
+["Heart and Soul Cafe","","0 Central St","","Ipswich","MA","01938","friday,local-dlv,standard-cafe-cans-dlv"],
+["Holden Oil","","91R Lynnfield Street","","Peabody","MA","01960","friday,local-dlv,standard-cafe-cans-kegs"],
+["Jennifer Lee's Bakery","","100 Hanover St","","Boston","MA","02108","local-dlv,standard-cafe-cans-dlv,Tuesday"],
+["Jitters","Melrose","12 Main Street","","Melrose","MA","02176","friday,local-dlv,standard-cafe-cans-kegs"],
+["Jitters","Cafe and Lounge Burlington VT","130 Bank Street","","Burlington","VT","05401","friday,local-dlv,standard-cafe-cans-kegs"],
+["LaRosa's","","7 Barnard Street","","Andover","MA","01810","local-dlv,standard-cafe-cans-kegs,Tuesday"],
+["Laughing Gull","","4 Summer St","","Manchester-by-the-Sea","MA","01944","friday,local-dlv,standard-cafe-cans-kegs"],
+["Ledger Salem","","125 Washington St","","Salem","MA","01970","friday,local-dlv,standard-cafe-cans-dlv"],
+["Lewis' Restaurant & Grille","","92 Central St","","Norwood","MA","02062","local-dlv,monday,standard-cafe-cans-dlv"],
+["JP Licks","West Broadway","397 West Broadway","","Boston","MA","02127",""],
+["JP Licks","West Roxbury","661 VFW Pkwy","","Boston","MA","02467",""],
+["JP Licks","Assembly Row","611 Assembly Row","","Somerville","MA","02145",""],
+["JP Licks","Andover","28 Park St","","Andover","MA","01810",""],
+["JP Licks","Davis Square","4 College Ave","","Somerville","MA","02144",""],
+["JP Licks","Beacon Hill","150 Charles St","","Boston","MA","02114",""],
+["JP Licks","Boylston Street","1106 Boylston St","","Boston","MA","02215",""],
+["JP Licks","Coolidge Corner","311 Harvard St","","Brookline","MA","02445",""],
+["JP Licks","Jamaica Plain","659 Centre St","","Jamaica Plain","MA","02130",""],
+["JP Licks","Harvard Square","1312 Massachusetts Avenue","","Cambridge","MA","02138",""],
+["LGA, LLP","","500 West Cummings Park","","Woburn","MA","01801",""],
+["Lord Hobo Brewing Company","","5 Draper St","","Woburn","MA","01801","local-dlv,standard-cafe-cans-kegs,Thursday"],
+["Mariposa Bakery","","424 Massachusetts Avenue","","Cambridge","MA","02139","local-dlv,standard-cafe-cans-dlv,Thursday"],
+["Macdonald Restaurant Repair","","83 Pond St","","Norfolk","MA","02056","local-dlv,monday,standard-cafe-cans-dlv"],
+["Mass Ave Diner","","906 Massachusetts Avenue","","Cambridge","MA","02139","local-dlv,standard-cafe-cans-kegs,Thursday"],
+["Mckinnon's","Portsmouth NH","2454 Lafayette Road","","Portsmouth","NH","03801",""],
+["Mckinnon's","Salem NH","236 North Broadway","","Salem","NH","03079",""],
+["Mckinnon's","Danvers MA","3 Holten Street","","Danvers","MA","01923",""],
+["Mckinnon's","Wilmington MA","211 Lowell St","","Wilmington","MA","01887",""],
+["Mei Mei Dumplings","","58 Old Colony Ave","","Boston","MA","02127","local-dlv,standard-cafe-cans-dlv,Wednesday"],
+["Mass Pay","","500 Cummings Center","","Beverly","MA","01915","friday,local-dlv,standard-cafe-cans-kegs"],
+["Melt Salem","","10 Sunset Road","","Salem","MA","01970","friday,local-dlv,standard-cafe-cans-dlv"],
+["nectar cafe","","244 US Rt 1","","York","ME","03909","Ship,standard-cafe-pp"],
+["NESF","North East Specialty Foods","62 Country Club 1 Rd","","Sanford","ME","04073","local-market-cans,Pick-up"],
+["Nova BioMedical","","200 Prospect Street","","Waltham","MA","02453","local-dlv,standard-cafe-cans-kegs,Wednesday"],
+["Not Ya Mamas Cafe","","7 Church Street","","Salem","MA","01970","friday,local-dlv,standard-cafe-cans-dlv"],
+["Notch Brewery and Tap Room","","283 Derby St","","Salem","MA","01970","friday,local-dlv,standard-cafe-cans-dlv"],
+["On the Grind Cafe","Salem","36 Jefferson Avenue","","Salem","MA","01970","friday,local-dlv,standard-cafe-cans-kegs"],
+["On the Grind Cafe","Manchester-by-the-Sea","8 Atwater Avenue","","Manchester-by-the-Sea","MA","01944","friday,local-dlv,standard-cafe-cans-kegs"],
+["Olive's Coffee & Bakehouse","","341 High St","","Newburyport","MA","01950","local-dlv,standard-cafe-cans-kegs,Tuesday"],
+["Olivadi Restaurant","","8 Hollowdale Farm","","Walpole","MA","02081","local-dlv,monday,standard-cafe-cans-dlv"],
+["Painted Baker Cafe","","172 Main Street","","Putnam","CT","06260","Ship,standard-cafe"],
+["Paul W. Marks","","8 Commercial St","","Everett","MA","02149","Ship,standard-cafe-cans-sankey"],
+["Pemberton Farms","","2225 Massachusetts Avenue","","Cambridge","MA","02140","local-dlv,local-market-cans,standard-cafe-cans-dlv,Thursday"],
+["Portside Market","","50 Lewis St","","Boston","MA","02128","local-dlv,standard-cafe-cans-dlv,Tuesday"],
+["Poland Provisions","","1220 Maine Street","","Poland","ME","04274","Ship,standard-cafe-cans-ship"],
+["Reiser","","725 Dedham Street","","Canton","MA","02021",""],
+["Root NS Cafe","","35 Congress Street","","Salem","MA","01970","friday,local-dlv,standard-cafe-cans-dlv"],
+["Roche Bros.","West Roxbury","1800 Centre St","","West Roxbury","MA","02132",""],
+["Roche Bros.","DTX","8 Summer Street","","Boston","MA","02110",""],
+["Roche Bros.","Marshfield","605 Plain Street","","Marshfield","MA","02050",""],
+["Roche Bros.","Quincy","101 Falls Blvd","","Quincy","MA","02169",""],
+["Roche Bros.","Watertown","96 Arsenal Yards Blvd","","Watertown","MA","02472",""],
+["Roche Bros.","Westborough","1100 Union Street","","Westborough","MA","01581",""],
+["Salem High School Cafe","","77 Willson St","","Salem","MA","01970","friday,local-dlv,standard-cafe-cans-dlv"],
+["Salted Cod Arthouse","","53 Rocky Neck Avenue","","Gloucester","MA","01930","friday,local-dlv,standard-cafe-cans-dlv"],
+["Seaglass Restaurant","","4 Ocean Front North","","Salisbury","MA","01952","local-dlv,standard-cafe-cans-kegs,Tuesday"],
+["Selva Coffee House","","530 Shirley Street","","Winthrop","MA","02152","local-dlv,standard-cafe-cans-kegs,Tuesday"],
+["SoBol","","45 Enon Street","","Beverly","MA","01915","friday,local-dlv,standard-cafe-cans-kegs"],
+["Soma","","256 Cabot St","","Beverly","MA","01915","friday,local-dlv,standard-cafe-cans-dlv"],
+["Speedwell Coffee Company","","208 S Meadow Rd","","Plymouth","MA","02360","copack,Pick-up"],
+["St. John's Prep","","79 Summer St","","Danvers","MA","01923",""],
+["Spirits Cafe at Moose Alley","","2809 Main St","","Rangeley","ME","04970","Ship,standard-cafe-cans-ship"],
+["Sodexo","Chase Sapphire Lounge Logan","290 William F McClellan Hwy","","Boston","MA","02128",""],
+["Sodexo","Mass College of Art & Design","625 Huntington Avenue","","Boston","MA","02115",""],
+["Sodexo","Bousquet Mountain","101 Dan Fox Drive","","Pittsfield","MA","01201",""],
+["Sodexo","MIT Lincoln Laboratories","244 Wood Street","","Lexington","MA","02420",""],
+["Sodexo","Endicott College","376 Hale St","","Beverly","MA","01915",""],
+["Sodexo","Cranmore Mountain","239 Skimobile Road","","North Conway","NH","03860",""],
+["Sodexo","Merrimack College","315 Turnpike Street","","North Andover","MA","01845",""],
+["Sodexo","Salesforce Burlington","5 Wall Street","","Burlington","MA","01803",""],
+["Sweet Pea's Baking Company","","212 Sound Beach Avenue","","Greenwich","CT","06870","Ship,standard-cafe-cans-ship"],
+["Swift River Coffee Roasters","","1289 Roosevelt Trail","","Raymond","ME","04071","copack,Pick-up"],
+["The Broadway South Boston","","726 East Broadway","","Boston","MA","02127",""],
+["The Remedy Exchange","","41 Tuttle St","","Wakefield","MA","01880","friday,local-dlv,standard-cafe-cans-dlv"],
+["The Rose Room Cafe","Webster","4 E Main St","","Webster","MA","01570","Ship,standard-cafe-cans-ship"],
+["The Rose Room Cafe","Providence","460 Wickenden Street","","Providence","RI","02903","Ship,standard-cafe-cans-ship"],
+["The Roasted Granola","","1346 Massachusetts Avenue","","Arlington","MA","02476","local-dlv,standard-cafe-cans-kegs,Thursday"],
+["Thistle & Shamrock","","62 Walden St","","Cambridge","MA","02140","local-dlv,local-market,standard-cafe-cans-kegs,Thursday"],
+["Ugly Mug Diner","","122 Washington St","","Salem","MA","01970","friday,local-dlv,standard-cafe-cans-dlv"],
+["The Next One – Alchemy","Lynnfield","1100 Market Street","","Lynnfield","MA","01940",""],
+["The Next One – 15 Walnut","Hamilton","15 Walnut Road","","Hamilton","MA","01982",""],
+["The Next One – Cala's","Manchester-by-the-Sea","7 Beach St","","Manchester-by-the-Sea","MA","01944",""],
+["The Next One – Dire Wolf","Salem","87 Washington St","","Salem","MA","01970",""],
+["The Next One – Maggie's Farm","Middleton","189 S Main St","","Middleton","MA","01949",""],
+["The Next One – Hale Street Tavern","Beverly","717 Hale Street","","Beverly","MA","01915",""],
+["The Next One – Minglewood","Gloucester","25 Rogers Street","","Gloucester","MA","01930",""],
+["The Next One – The Spot","Georgetown","19 W Main St","","Georgetown","MA","01833",""],
+["Union Square Donuts","Assembly Row","457 Grand Union Blvd","","Somerville","MA","02145","local-dlv,standard-cafe-cans-kegs,Thursday"],
+["Union Square Donuts","Bow Street","20 Bow St","","Somerville","MA","02143","local-dlv,standard-cafe-cans-kegs,Thursday"],
+["Union Square Donuts","Harvard Street","409 Harvard St","","Brookline","MA","02446","local-dlv,standard-cafe-cans-kegs,Thursday"],
+["Union Square Donuts","Boston Public Market","100 Hanover St","","Boston","MA","02108","local-dlv,standard-cafe-cans-kegs,Thursday"],
+["Union Square Donuts","JFK Street","15 John F. Kennedy Street","","Cambridge","MA","02138","local-dlv,standard-cafe-cans-kegs,Thursday"],
+["Union Square Donuts","South Street","33 South Street","","Somerville","MA","02143","local-dlv,standard-cafe-cans-kegs,Thursday"],
+["Union Square Donuts","Lynnfield","850 Market Street","","Lynnfield","MA","01940","local-dlv,standard-cafe-cans-kegs,Thursday"],
+["Vidalias","","9 West Street","","Beverly","MA","01915","friday,local-dlv,standard-cafe-cans-dlv"],
+["Vinwood Catering","Ipswich","3 Union St","","Ipswich","MA","01938","friday,local-dlv,standard-cafe-pp"],
+["Vinwood Catering","Beauport Gloucester","55 Commercial St","","Gloucester","MA","01930","friday,local-dlv,standard-cafe-pp"],
+["Vinwood Catering","Cruiseport","6 Rowe Square","","Gloucester","MA","01930","friday,local-dlv,standard-cafe-pp"],
+["Village Tavern","","168 Essex Street","","Salem","MA","01970",""],
+["Volante Farms","","292 Forest St","","Needham","MA","02492","local-dlv,standard-cafe-cans-dlv,Wednesday"],
+["Weston Provisions","","403 Boston Post Rd","","Weston","MA","02493","local-dlv,standard-cafe-cans-dlv,Wednesday"],
+["Wards Berry Farm","","614 South Main Street","","Sharon","MA","02067","local-dlv,local-market-cans,monday"],
+["Wicked Bagel","Woburn","384 Washington St","","Woburn","MA","01801",""],
+["Wicked Bagel","Lexington","171 Massachusetts Avenue","","Lexington","MA","02420",""],
+["Wicked Bagel","Watertown","68 School Street","","Watertown","MA","02472",""],
+["Whisk and Paddle","","111 N Washington St","","North Attleborough","MA","02760","local-dlv,standard-cafe-cans-dlv,Wednesday"],
+["Whole Foods","Andover","40 Railroad Street","","Andover","MA","01810",""],
+["Whole Foods","University Providence","601 N Main St","","Providence","RI","02904",""],
+["Whole Foods","Avon Village CT","50 Climax Heights Road","","Avon","CT","06001",""],
+["Whole Foods","Bedford MA","170 Great Road","","Bedford","MA","01730",""],
+["Whole Foods","Bishops Corner CT","340 N Main St","","West Hartford","CT","06117",""],
+["Whole Foods","Beverly MA","150 Brimbal Ave","","Beverly","MA","01915",""],
+["Whole Foods","Cambridge River St","340 River St","","Cambridge","MA","02139",""],
+["Whole Foods","Charles River Boston","181 Cambridge Street","","Boston","MA","02114",""],
+["Whole Foods","Cranston RI","151 Sockanosset Cross Road","","Cranston","RI","02920",""],
+["Whole Foods","Dedham MA","300 Legacy Place","","Dedham","MA","02026",""],
+["Lark Hotels","The Sydney Hotel","22 Winter Street","","Edgartown","MA","02539",""],
+["Lark Hotels","Blue Inn on the Beach","20 Fordham Way","","Newbury","MA","01951",""],
+["Lark Hotels","Hotel Portsmouth","40 Court Street","","Portsmouth","NH","03801",""],
+["Lark Hotels","Hotel Marblehead","264 Pleasant Street","","Marblehead","MA","01945",""],
+["Lark Hotels","Summercamp Hotel","70 Lake Ave","","Oak Bluffs","MA","02557",""],
+["Lark Hotels","The Merchant Hotel","148 Washington Street","","Salem","MA","01970",""],
+["Lark Hotels","Hotel Salem","209 Essex St","","Salem","MA","01970",""],
+["Lark Hotels","The Edgartown Inn","56 North Water Street","","Edgartown","MA","02539",""],
+["Lark Hotels","The Richard","104 Main Street","","Edgartown","MA","02539",""],
+["Lark Hotels","The Christopher Hotel","24 South Water Street","","Edgartown","MA","02539",""],
+["Couch Dog Brewing Co","","76 Lafayette St","","Salem","MA","01970","friday,local-dlv,standard-cafe-cans-dlv"],
+["Singing Beach Canteen","","119 Beach St","","Manchester-by-the-Sea","MA","01944","friday,local-dlv,standard-cafe-cans-kegs"],
+["RealFood","","63 Chapel Street","","Newton","MA","02458",""],
+["Tanglewood","Cindy's Cafe","297 West Street","","Lenox","MA","01240","Ship,standard-cafe-cans-ship"],
+["Kitchen Table Beverly","","392 Cabot Street","","Beverly","MA","01915","friday,local-dlv,standard-cafe-cans-kegs"],
+["Level 99","Natick","1235 Worcester Street","","Natick","MA","01760","Ship,standard-cafe-pp-cans-ship"],
+["Level 99","Providence","8 Providence Place","","Providence","RI","02903","Ship,standard-cafe-pp-cans-ship"],
+["Trident Booksellers and Cafe","","338 Newbury Street","","Boston","MA","02115","local-dlv,standard-cafe-cans-dlv,Tuesday"],
+["Sloane's","","197 North Harvard Street","","Boston","MA","02134","local-dlv,standard-cafe-cans-kegs,Wednesday"],
+["Baldor","","130 Eastern Ave","","Chelsea","MA","02150","Pick-up,standard-cafe-cans-sankey"],
+["Marshall's Farm Stand","","144 Concord Street","","Gloucester","MA","01930","friday,local-dlv,standard-cafe-cans-dlv"],
+["Wood MacKenzie","","179 Lincoln Street","","Boston","MA","02111","local-dlv,standard-cafe-cans-kegs,Tuesday"],
+["Shaw's – Beverly","","71 Dodge St","","Beverly","MA","01915",""],
+["Chococoa Baking Company","","50 Water St","","Newburyport","MA","01950","local-dlv,standard-cafe-cans-kegs,Tuesday"],
+["Autumn Nomad Cafe","","18 Black Mountain Road","","Jackson","NH","03846","Ship,standard-cafe-cans-ship"],
+["Clinton's Bar and Grille","","27 High Street","","Clinton","MA","01510","Ship,standard-cafe-pp"],
+["Bolton Bean","","626 Main Street","","Bolton","MA","01740","local-dlv,monday,standard-cafe-cans-ship"],
+["Roasted Coffee Bar","","181 Groveland Street","","Haverhill","MA","01830",""],
+["Rise & Shine Coffee House","","400 Main Street","","Wakefield","MA","01880","friday,local-dlv,standard-cafe-cans-kegs"],
+["American Provisions","South Boston","613 East Broadway","","Boston","MA","02127","local-dlv,standard-cafe-cans-dlv,Wednesday"],
+["American Provisions","Dorchester","1971 Dorchester Avenue","","Boston","MA","02124","local-dlv,standard-cafe-cans-dlv,Wednesday"],
+["Shirley Eat More Sunshine","","22A College Avenue","","Somerville","MA","02143","local-dlv,standard-cafe-cans-dlv,Thursday"],
+["Bamboo Beach Juice Bar","South Boston","687 East 2nd Street","","Boston","MA","02127","local-dlv,standard-cafe-cans-kegs,Wednesday"],
+["Bamboo Beach Juice Bar","Weymouth","88 Pleasant Street","","Weymouth","MA","02190","local-dlv,standard-cafe-cans-kegs,Wednesday"],
+["Blackcraft Cult","","253 Essex St","","Salem","MA","01970","friday,local-dlv,standard-cafe-cans-kegs"],
+["Florenza","","164 Sumner Street","","East Boston","MA","02128","local-dlv,standard-cafe-cans-kegs,Tuesday"],
+["A Sanctuary Cafe","","80 Charles Street","","Boston","MA","02114","local-dlv,standard-cafe-cans-dlv,Tuesday"],
+["Committee Boston","","50 Northern Avenue","","Boston","MA","02210","local-dlv,standard-cafe-pp-cans-dlv,Wednesday"],
+["Streetcar Wines","","488 Centre Street","","Boston","MA","02130",""],
+["The Goods Bakery & Cafe","","320 Main Street","","Spencer","MA","01562","Ship,standard-cafe-cans-ship"],
+["The Nantucket Hotel","","77 Easton Street","","Nantucket","MA","02554","Ship,standard-cafe-cans-ship"],
+["Rebelle Artisan Bagels","","249 Third Street","","Cambridge","MA","02142",""],
+["Leary's Fine Wine & Spirits","","202 Merrimac Street","","Newburyport","MA","01950",""],
+["SipWithMe","Harborview at The Navy Yard","250 1st Avenue","","Boston","MA","02129",""],
+["SipWithMe","The Batch Yard Everett","25 Charlton Street","","Everett","MA","02149",""],
+["SipWithMe","The Jayden Peabody","7 Dearborn Road","","Peabody","MA","01960",""],
+["SipWithMe","The Lodge Marlboro","3000 Green District Blvd","","Marlborough","MA","01752",""],
+["SipWithMe","The Kendrick Needham","275 2nd Avenue","","Needham","MA","02494",""],
+["SipWithMe","40 East Pier Drive Boston","40 East Pier Drive","","Boston","MA","02128",""],
+["Third Cliff Bakery","","3531 Washington Street","","Boston","MA","02130","local-dlv,standard-cafe-cans-dlv,Wednesday"],
+["Augusta Subs and Salads","Billerica","599 Boston Road","","Billerica","MA","01821","local-dlv,monday,standard-cafe-cans-kegs"],
+["Augusta Subs and Salads","Foxborough","10 East Belcher Road","","Foxborough","MA","02035","local-dlv,monday,standard-cafe-cans-kegs"],
+["Periwinkles Food Shoppe","","540 Loring Avenue","","Salem","MA","01970","friday,local-dlv,standard-cafe-cans-dlv"],
+["Mezzanine Catering","","6 Progress Drive","","Dover","NH","03820",""],
+["The Playwright","","658 East Broadway","","Boston","MA","02127","local-dlv,standard-cafe-cans-dlv,Wednesday"],
+["Tea By The Sea","","99 Sumner St","","Boston","MA","02128","local-dlv,standard-cafe-cans-kegs,Tuesday"],
+["Aeronaut Brewing Co.","","14 Tyler Street","","Somerville","MA","02143","local-dlv,standard-cafe-cans-dlv,Thursday"],
+["Pipe Dream Cupcakes","","48 Water St","","North Andover","MA","01845","local-dlv,standard-cafe-cans-kegs,Tuesday"],
+["Pelham Hospitality","Pelham House Resort","14 Sea Street","","Dennis","MA","02639","Ship,standard-cafe"],
+["Pelham Hospitality","Pelham on the Rise","281 Main Street","","Dennis","MA","02639","Ship,standard-cafe"],
+["Pelham Hospitality","Pelham on Earle","30 Earle Road","","Harwich","MA","02671","Ship,standard-cafe"],
+["Pelham Hospitality","Love Farms","607 Main Street","","West Dennis","MA","02670","Ship,standard-cafe"],
+["P Shea Restaurant Group","CK Pearl Essex","112 Main Street","","Essex","MA","01929","friday,local-dlv,standard-cafe-pp-cans-dlv"],
+["P Shea Restaurant Group","Decklyn's Gloucester","31 Harbor Loop","","Gloucester","MA","01930","friday,local-dlv,standard-cafe-pp-cans-dlv"],
+["Blackie's","","280 George Washington Highway","","Smithfield","RI","02917","local-dlv,standard-cafe-cans-dlv,Wednesday"],
+["Rail Trail Flatbread Co.","","223 Main Street","","Milford","MA","01757","local-dlv,monday,standard-cafe-cans-dlv"],
+["Verveine Cafe","","298 Massachusetts Avenue","","Cambridge","MA","02139","local-dlv,standard-cafe-cans-dlv,Thursday"],
+["Eventide Fenway","","1321 Boylston Street","","Boston","MA","02215",""],
+["Downeast Cider House","","256 Marginal Street","","Boston","MA","02128","local-dlv,standard-cafe-cans-dlv,Tuesday"],
+["Moka Origins","","952 Bethany Turnpike","","Honesdale","PA","18431",""],
+["Summer Shack","50 Dalton Street","50 Dalton Street","","Boston","MA","02115","local-dlv,standard-cafe-cans-dlv,Tuesday"],
+["Summer Shack","149 Alewife Cambridge","149 Alewife Brook Parkway","","Cambridge","MA","02138","local-dlv,standard-cafe-cans-dlv,Tuesday"],
+["The James Pub & Provisions","","55 Main Street","","Essex","MA","01929","friday,local-dlv,standard-cafe-pp-cans-dlv"],
+["Harbor Fox Coffee Bar","","230 Weir Road","","Yarmouth Port","MA","02675","Ship,standard-cafe-cans-ship"],
+["Perfect Strangers Family Kitchen","","14 North St","","Medfield","MA","02052","local-dlv,monday,standard-cafe-cans-kegs"],
+["Encore Catering","Xfinity Center","885 South Main Street","","Mansfield","MA","02048","local-dlv,standard-cafe-cans-kegs,Wednesday"],
+["Encore Catering","Leader Bank Pavilion","290 Northern Avenue","","Boston","MA","02210","local-dlv,standard-cafe-cans-kegs,Wednesday"],
+["The Buzzin' Bean","","237 Holland Street","","Somerville","MA","02144","local-dlv,standard-cafe-cans-kegs,Thursday"],
+["Niveaux Patisserie","","406 Hancock Street","","Quincy","MA","02171",""],
+["Treat Baking Company","","59 Willow Street","","Hamilton","MA","01982","friday,local-dlv,standard-cafe-cans-dlv"],
+["Row 34","Boston","383 Congress Street","","Boston","MA","02210","local-dlv,standard-cafe-pp-cans-dlv,Wednesday"],
+["Row 34","Burlington MA","300 District Avenue","","Burlington","MA","01803","local-dlv,standard-cafe-pp-cans-dlv,Wednesday"],
+["Row 34","Portsmouth NH","5 Portwalk Place","","Portsmouth","NH","03801","local-dlv,standard-cafe-pp-cans-dlv,Wednesday"],
+["Row 34","Cambridge","314 Main Street","","Cambridge","MA","02142","local-dlv,standard-cafe-pp-cans-dlv,Wednesday"],
+["Row 34","Kenmore","498 Commonwealth Avenue","","Boston","MA","02215","local-dlv,standard-cafe-pp-cans-dlv,Wednesday"],
+["Lazy Cat Lounge","","177 Merrimack Street","","Lowell","MA","01852","local-dlv,monday,standard-cafe-cans-kegs"],
+["The Cookie Monstah","","6 Garden Street","","Danvers","MA","01923","friday,local-dlv,standard-cafe-cans-dlv"],
+["Mass Maritime Academy","","101 Academy Drive","","Bourne","MA","02532","Ship,standard-cafe-pp-cans-ship"],
+["Inspire Bowl N Tea","","1686 Massachusetts Avenue","","Lexington","MA","02420","local-dlv,standard-cafe-cans-kegs,Thursday"],
+["Peabody Essex Museum – Gift Shop","","135 Essex St","","Salem","MA","01970",""],
+["Nautilus Pier 4","","300 Pier 4 Blvd","","Boston","MA","02210","local-dlv,standard-cafe-cans-kegs,Wednesday"],
+["Cheetah Coffee Company","","123 Fire Rd 12","","Lancaster","MA","01523","Ship,standard-cafe-cans-ship"],
+["Nouvelle Maison","","30 Church St","","Winchester","MA","01890","local-dlv,loose-leaf,standard-cafe-cans-dlv,Thursday"],
+["Hobgoblin","","48 Temple Place","","Boston","MA","02108","local-dlv,standard-cafe-cans-dlv,Tuesday"],
+["NEEBS Coffee & Co","","418 Washington Street","","Somerville","MA","02143","Ship,standard-cafe-cans-ship"],
+["Empower Cafe","Woburn","400 West Cummings Park","","Woburn","MA","01801","local-dlv,standard-cafe-cans-kegs,Thursday"],
+["Empower Cafe","Reading","190 Haven Street","","Reading","MA","01867","local-dlv,standard-cafe-cans-kegs,Thursday"],
+["Mystic Cycle Centre","","25 Stonington Road","","Mystic","CT","06355","Ship,standard-cafe-cans-ship"],
+["Littleton Food Co-Op","","43 Bethlehem Road","","Littleton","NH","03561","local-market,Ship,standard-cafe-cans-ship"],
+["Jamie's Ice Cream Co.","Cambridge","88 Kirkland Street","","Cambridge","MA","02138","local-dlv,standard-cafe-cans-dlv,Thursday"],
+["Faces Brewing Co.","","50 Pleasant Street","","Malden","MA","02148",""],
+["Travelmug Cafe","","50 Liberty Drive","","Boston","MA","02210","local-dlv,standard-cafe-cans-kegs,Wednesday"],
+["Bostonia Public House","","131 State Street","","Boston","MA","02109","local-dlv,standard-cafe-cans-kegs,Tuesday"],
+["Homestead Bakery & Cafe","","1448 Dorchester Avenue","","Boston","MA","02122","local-dlv,standard-cafe-cans-dlv,Wednesday"],
+["Assabet Market Co-Op","","86 Powder Mill Road","","Maynard","MA","01754","local-dlv,monday,standard-cafe-cans-dlv"],
+["Marriott","Element Boston","391-395 D St","","Boston","MA","02210",""],
+["Marriott","Aloft Boston","401-403 D St","","Boston","MA","02127",""],
+["Drifters Kitchen and Bar","","1464 Hancock Street","","Quincy","MA","02169",""],
+["George Howell Coffee","","312 School St","","Acton","MA","01720",""],
+["The Last Drop Coffee Shop","","211 W Main St","","Munday","TX","76371","Ship,standard-cafe"],
+["Margeaux Supper Parlor","","1924 Massachusetts Avenue","","Cambridge","MA","02140",""],
+["Jamie's Ice Cream Co.","Cambridge Kirkland","88 Kirkland Street","","Cambridge","MA","02138","local-dlv,standard-cafe-cans-dlv,Thursday"],
+];
+
+// ─── CATEGORY DETECTION ───────────────────────────────────────────────────────
+const CATS = {
+  "Cafe/Coffee":    { color: "#6F4E37", text: "☕" },
+  "Restaurant/Bar": { color: "#E53935", text: "🍽" },
+  "Grocery/Market": { color: "#43A047", text: "🛒" },
+  "Brewery":        { color: "#7B1FA2", text: "🍺" },
+  "Hotel/Inn":      { color: "#1E88E5", text: "🏨" },
+  "Bakery":         { color: "#FB8C00", text: "🥐" },
+  "Corporate/Office":{ color: "#546E7A", text: "🏢" },
+  "Fitness/Gym":    { color: "#00ACC1", text: "💪" },
+  "Catering/Food Svc":{ color: "#F4511E", text: "🎪" },
+  "Farm/Orchard":   { color: "#795548", text: "🌿" },
+  "Ice Cream":      { color: "#EC407A", text: "🍦" },
+  "Other":          { color: "#78909C", text: "📍" },
+};
+
+const DAY_COLORS = {
+  "Monday":    "#F44336",
+  "Tuesday":   "#FF9800",
+  "Wednesday": "#4CAF50",
+  "Thursday":  "#2196F3",
+  "Friday":    "#9C27B0",
+  "Ship":      "#607D8B",
+};
+
+function detectCategory(name) {
+  const n = name.toLowerCase();
+  if (/brew(ing|ery)|taproom|tap room|ale brew|distill|cider/.test(n)) return "Brewery";
+  if (/crossfit|fitness|gym|cycle|cycling|bike shop/.test(n)) return "Fitness/Gym";
+  if (/hotel|inn|resort|lodge|summercamp|mariner|nantucket hotel|marriott|sheraton|aloft|element hotel/.test(n)) return "Hotel/Inn";
+  if (/whole foods|market|provisions|grocery|supermarket|crosby|roche bros|mckinnon|donelan|atkins farm|shaw's|ring bros|butcher boy|clements|pemberton farm|guido's|art's specialties|needham center|co-op|coop|general store|volante|weston provisions|davids fresh|american provisions|urban greens|meadowbrook farm|appleton|new england country|wards berry|automated food/.test(n)) return "Grocery/Market";
+  if (/farm|orchard|vineyard|farm stand|berry farm/.test(n)) return "Farm/Orchard";
+  if (/bakery|baking|bake shop|donut|bagels|bagel|bread|patisserie|cookie|pastry|monstah|crumbl/.test(n)) return "Bakery";
+  if (/ice cream|gelato|sorbet|creamery/.test(n)) return "Ice Cream";
+  if (/cafe|coffee|cup|roasters|espresso|cappuccino|bean|brew bar|nitro|pour|grind|grounds|coffeehouse/.test(n)) return "Cafe/Coffee";
+  if (/catering|caterers|aramark|sodexo|compass group|gourmet|sipwithme|encore|gourmet caterers|prestige services|realfood/.test(n)) return "Catering/Food Svc";
+  if (/analytics|energy|biomedical|pharmaceutical|lab|innovation|technology|reiser|nova bio|nova biomed|lga|cell signaling|formlabs|form energy|mass pay|greystar|reveneer|c-4|coordinates op|wood mackenzie|ezcater/.test(n)) return "Corporate/Office";
+  if (/restaurant|kitchen|bistro|grille|grill|pub|bar|tavern|diner|eatery|supper|dining|ristorante|bbq|barbecue|sushi|steakhouse|brasserie|cantina|trattoria|osteria|seafood/.test(n)) return "Restaurant/Bar";
+  return "Cafe/Coffee"; // default for most unknowns
+}
+
+function getDeliveryDay(tags) {
+  const t = tags.map(x => x.toLowerCase());
+  if (t.includes("monday")) return "Monday";
+  if (t.includes("tuesday")) return "Tuesday";
+  if (t.includes("wednesday")) return "Wednesday";
+  if (t.includes("thursday")) return "Thursday";
+  if (t.includes("friday")) return "Friday";
+  if (tags.some(x => x === "Ship")) return "Ship";
+  if (tags.some(x => x === "Pick-up")) return "Pick-up";
+  return "Unknown";
+}
+
+function getFulfillment(tags) {
+  if (tags.includes("local-dlv")) return "Local Delivery";
+  if (tags.some(x => x === "Ship")) return "Ship";
+  if (tags.some(x => x === "Pick-up")) return "Pick-up";
+  if (tags.includes("copack")) return "Co-Pack";
+  return "Unknown";
+}
+
+// ─── PROCESS DATA ─────────────────────────────────────────────────────────────
+const LOCATIONS = RAW.map(([company, location, addr1, addr2, city, state, zip, tagsCsv], i) => {
+  const tags = tagsCsv ? tagsCsv.split(",").map(t => t.trim()).filter(Boolean) : [];
+  const displayName = location && location.trim() ? `${company} – ${location}` : company;
+  const fullAddr = [addr1, addr2, city, state, zip].filter(Boolean).join(", ");
+  return {
+    id: i,
+    company,
+    location: displayName,
+    addr1, addr2, city, state, zip,
+    fullAddr,
+    geocodeKey: `${addr1}, ${city}, ${state} ${zip}`,
+    tags,
+    category: detectCategory(company),
+    deliveryDay: getDeliveryDay(tags),
+    fulfillment: getFulfillment(tags),
+    lat: null, lng: null,
+  };
+});
+
+// ─── MAP SETUP ────────────────────────────────────────────────────────────────
+const map = L.map("map").setView([42.42, -70.95], 9);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  maxZoom: 19,
+}).addTo(map);
+
+const markerLayer = L.layerGroup().addTo(map);
+
+function makeMarker(loc) {
+  const cat = CATS[loc.category] || CATS["Other"];
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="32" viewBox="0 0 24 32">
+    <path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 20 12 20s12-11 12-20C24 5.4 18.6 0 12 0z" fill="${cat.color}" stroke="white" stroke-width="1.5"/>
+    <circle cx="12" cy="12" r="5" fill="white" opacity="0.9"/>
+  </svg>`;
+  const icon = L.divIcon({
+    html: svg,
+    iconSize: [24, 32],
+    iconAnchor: [12, 32],
+    popupAnchor: [0, -32],
+    className: "",
+  });
+
+  const popup = `
+    <b>${loc.location}</b>
+    <div class="popup-category">${loc.category}</div>
+    ${loc.addr1}${loc.addr2 ? ", "+loc.addr2 : ""}<br>
+    ${loc.city}, ${loc.state} ${loc.zip}<br>
+    <div style="margin-top:4px;">
+      <span class="popup-tag" style="background:${DAY_COLORS[loc.deliveryDay]}20;color:${DAY_COLORS[loc.deliveryDay]};border:1px solid ${DAY_COLORS[loc.deliveryDay]}40;">${loc.deliveryDay}</span>
+      <span class="popup-tag">${loc.fulfillment}</span>
+    </div>`;
+
+  return L.marker([loc.lat, loc.lng], { icon })
+    .bindPopup(popup)
+    .on("popupopen", () => map.setView([loc.lat, loc.lng], Math.max(map.getZoom(), 14)));
+}
+
+// ─── FILTERS ──────────────────────────────────────────────────────────────────
+const FILTERABLE_DAYS = new Set(["Monday","Tuesday","Wednesday","Thursday","Friday","Ship"]);
+let activeTypes = new Set(Object.keys(CATS));
+let activeDays  = new Set(FILTERABLE_DAYS);
+
+function countBy(arr, key, val) { return arr.filter(l => l.lat && l[key] === val).length; }
+
+function buildFilters() {
+  const typeDiv = document.getElementById("type-filters");
+  const dayDiv  = document.getElementById("day-filters");
+
+  // clear before rebuilding
+  typeDiv.innerHTML = `<button class="filter-btn active" id="all-btn" onclick="toggleAll()">All Types</button>`;
+  dayDiv.innerHTML  = "";
+
+  Object.entries(CATS).forEach(([name, meta]) => {
+    const c = countBy(LOCATIONS, "category", name);
+    const btn = document.createElement("button");
+    btn.className = "filter-btn active";
+    btn.dataset.type = name;
+    btn.innerHTML = `<span class="dot" style="background:${meta.color}"></span>${name}<span class="count">${c}</span>`;
+    btn.onclick = () => toggleType(name, btn);
+    typeDiv.appendChild(btn);
+  });
+
+  Object.entries(DAY_COLORS).forEach(([day, col]) => {
+    const c = countBy(LOCATIONS, "deliveryDay", day);
+    const btn = document.createElement("button");
+    btn.className = "filter-btn active";
+    btn.dataset.day = day;
+    btn.innerHTML = `<span class="dot" style="background:${col}"></span>${day}<span class="count">${c}</span>`;
+    btn.onclick = () => toggleDay(day, btn);
+    dayDiv.appendChild(btn);
+  });
+}
+
+function toggleType(name, btn) {
+  if (activeTypes.has(name)) { activeTypes.delete(name); btn.classList.remove("active"); }
+  else { activeTypes.add(name); btn.classList.add("active"); }
+  refreshMarkers();
+}
+
+function toggleDay(day, btn) {
+  if (activeDays.has(day)) { activeDays.delete(day); btn.classList.remove("active"); }
+  else { activeDays.add(day); btn.classList.add("active"); }
+  refreshMarkers();
+}
+
+
+function toggleAll() {
+  const btn = document.getElementById("all-btn");
+  const allOn = activeTypes.size === Object.keys(CATS).length;
+  document.querySelectorAll("[data-type]").forEach(b => {
+    if (allOn) { activeTypes.delete(b.dataset.type); b.classList.remove("active"); }
+    else { activeTypes.add(b.dataset.type); b.classList.add("active"); }
+  });
+  btn.classList.toggle("active", !allOn);
+  refreshMarkers();
+}
+
+function refreshMarkers() {
+  markerLayer.clearLayers();
+  let visible = 0;
+  LOCATIONS.forEach(loc => {
+    if (!loc.lat) return;
+    if (!activeTypes.has(loc.category)) return;
+    if (FILTERABLE_DAYS.has(loc.deliveryDay) && !activeDays.has(loc.deliveryDay)) return;
+    markerLayer.addLayer(makeMarker(loc));
+    visible++;
+  });
+  const placed = LOCATIONS.filter(l => l.lat).length;
+  document.getElementById("stats-line").textContent =
+    `${visible} shown · ${placed} geocoded / ${LOCATIONS.length} total`;
+}
+
+// ─── GEOCODING ────────────────────────────────────────────────────────────────
+const CACHE_KEY = "acr_map_geo_v2";
+let geoCache = {};
+try { geoCache = JSON.parse(localStorage.getItem(CACHE_KEY)) || {}; } catch(e) {}
+
+let geocodedCount = 0;
+let geocodeQueue = [];
+let geocodeRunning = false;
+
+function updateProgress() {
+  const total = LOCATIONS.length;
+  const pct = Math.round(geocodedCount / total * 100);
+  document.getElementById("progress-fill").style.width = pct + "%";
+  document.getElementById("progress-text").textContent = `${geocodedCount} / ${total} geocoded`;
+  if (geocodedCount >= total) {
+    document.getElementById("progress-bar").style.display = "none";
+    buildFilters();
+    refreshMarkers();
+    saveCache();
+  }
+}
+
+async function geocodeOne(loc) {
+  const key = loc.geocodeKey;
+  if (geoCache[key]) {
+    loc.lat = geoCache[key][0];
+    loc.lng = geoCache[key][1];
+    geocodedCount++;
+    updateProgress();
+    if (geocodedCount % 10 === 0) { buildFilters(); refreshMarkers(); }
+    return;
+  }
+  try {
+    const q = encodeURIComponent(`${loc.addr1}, ${loc.city}, ${loc.state} ${loc.zip}, USA`);
+    const url = `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1&countrycodes=us`;
+    const res = await fetch(url, { headers: { "Accept-Language": "en" } });
+    const data = await res.json();
+    if (data && data[0]) {
+      loc.lat = parseFloat(data[0].lat);
+      loc.lng = parseFloat(data[0].lon);
+      geoCache[key] = [loc.lat, loc.lng];
+    } else {
+      // try city-level fallback
+      const q2 = encodeURIComponent(`${loc.city}, ${loc.state} ${loc.zip}, USA`);
+      const res2 = await fetch(`https://nominatim.openstreetmap.org/search?q=${q2}&format=json&limit=1&countrycodes=us`);
+      const data2 = await res2.json();
+      if (data2 && data2[0]) {
+        loc.lat = parseFloat(data2[0].lat);
+        loc.lng = parseFloat(data2[0].lon);
+        geoCache[key] = [loc.lat, loc.lng];
+      }
+    }
+  } catch(e) {}
+  geocodedCount++;
+  updateProgress();
+  if (geocodedCount % 10 === 0) { buildFilters(); refreshMarkers(); }
+}
+
+function saveCache() {
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify(geoCache)); } catch(e) {}
+}
+
+async function runGeocodingQueue() {
+  if (geocodeRunning) return;
+  geocodeRunning = true;
+  for (const loc of geocodeQueue) {
+    await geocodeOne(loc);
+    if (!geoCache[loc.geocodeKey]) continue; // was cached
+    await new Promise(r => setTimeout(r, 1050)); // Nominatim 1 req/sec
+  }
+  geocodeRunning = false;
+  saveCache();
+}
+
+// Load from cache first, queue the rest
+const needGeocode = [];
+LOCATIONS.forEach(loc => {
+  const key = loc.geocodeKey;
+  if (geoCache[key]) {
+    loc.lat = geoCache[key][0];
+    loc.lng = geoCache[key][1];
+    geocodedCount++;
+  } else {
+    needGeocode.push(loc);
+  }
+});
+
+geocodeQueue = needGeocode;
+buildFilters();
+refreshMarkers();
+updateProgress();
+
+if (needGeocode.length > 0) {
+  runGeocodingQueue();
+} else {
+  document.getElementById("progress-bar").style.display = "none";
+}
+</script>
+</body>
+</html>
