@@ -6,6 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Atomic Coffee — Wholesale Map</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css"/>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 body{display:flex;height:100vh;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;background:#1a1a1a;}
@@ -42,6 +43,47 @@ body{display:flex;height:100vh;font-family:-apple-system,BlinkMacSystemFont,'Seg
 .leaflet-popup-content b{font-size:13px;display:block;margin-bottom:4px;color:#1a1a1a;}
 .popup-tag{display:inline-block;background:#eee;border-radius:3px;padding:1px 6px;font-size:10px;margin:2px 2px 0 0;}
 .popup-category{font-size:11px;color:#666;margin-bottom:3px;}
+/* ─── ZONE MANAGEMENT ───────────────────────────────────────────────────────── */
+.zone-item{display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid #262626;}
+.zone-swatch{width:10px;height:10px;border-radius:2px;flex-shrink:0;}
+.zone-name{flex:1;font-size:11px;color:#ccc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.zone-vis{background:none;border:none;color:#555;cursor:pointer;font-size:11px;padding:0 3px;line-height:1;flex-shrink:0;}
+.zone-vis.on{color:#aaa;}
+.zone-edit-btn{background:#2a2a2a;border:1px solid #3a3a3a;border-radius:3px;color:#888;cursor:pointer;font-size:10px;padding:2px 7px;white-space:nowrap;flex-shrink:0;}
+.zone-edit-btn:hover{background:#333;color:#ddd;}
+#add-zone-btn{width:100%;background:transparent;border:1px dashed #3a3a3a;border-radius:4px;color:#555;padding:5px;font-size:11px;cursor:pointer;margin-top:8px;text-align:center;font-family:inherit;}
+#add-zone-btn:hover{background:#222;color:#aaa;border-color:#555;}
+#zone-edit-panel{background:#1a1a1a;border-top:1px solid #333;padding:10px 12px;flex-shrink:0;display:none;}
+#zone-edit-panel.active{display:block;}
+.ze-row{display:flex;gap:6px;align-items:center;margin-bottom:7px;}
+#editing-color{width:30px;height:30px;border:1px solid #444;border-radius:4px;cursor:pointer;padding:2px;flex-shrink:0;background:#2a2a2a;}
+#editing-name{flex:1;background:#2a2a2a;border:1px solid #3a3a3a;border-radius:4px;color:#e0e0e0;padding:5px 8px;font-size:12px;outline:none;font-family:inherit;}
+#editing-name:focus{border-color:#555;}
+.ze-actions{display:flex;gap:4px;}
+.ze-done{flex:1;background:#1e3a1e;border:1px solid #2e5a2e;border-radius:3px;color:#81c784;padding:6px 8px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;}
+.ze-done:hover{background:#254a25;}
+.ze-del{background:#2a1818;border:1px solid #4a2828;border-radius:3px;color:#ef9a9a;padding:6px 8px;font-size:11px;cursor:pointer;font-family:inherit;}
+.ze-del:hover{background:#3a1e1e;}
+.ze-tip{font-size:10px;color:#444;margin-top:7px;text-align:center;line-height:1.4;}
+#zone-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9999;align-items:center;justify-content:center;}
+#zone-modal.open{display:flex;}
+#zone-modal-box{background:#232323;border:1px solid #484848;border-radius:8px;padding:20px;width:260px;}
+#zone-modal-box h3{font-size:14px;color:#fff;margin-bottom:14px;font-weight:700;}
+.mf{margin-bottom:10px;}
+.mf label{font-size:10px;color:#777;text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px;}
+.mf input[type=text]{width:100%;background:#2a2a2a;border:1px solid #3a3a3a;border-radius:4px;color:#e0e0e0;padding:6px 10px;font-size:12px;outline:none;font-family:inherit;box-sizing:border-box;}
+.mf input[type=text]:focus{border-color:#555;}
+.mf input[type=color]{width:100%;height:32px;border:1px solid #3a3a3a;border-radius:4px;cursor:pointer;background:#2a2a2a;padding:2px;}
+.ma{display:flex;gap:6px;margin-top:14px;}
+.ma button{flex:1;padding:8px;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;border:none;font-family:inherit;}
+.ma .mprimary{background:#4CAF50;color:#fff;}
+.ma .mprimary:hover{background:#43a047;}
+.ma .mcancel{background:#333;color:#aaa;}
+.ma .mcancel:hover{background:#3a3a3a;}
+/* leaflet-draw toolbar dark theme */
+.leaflet-draw-toolbar a{background-color:#2a2a2a;border-color:#444;}
+.leaflet-draw-toolbar a:hover{background-color:#383838;}
+.leaflet-draw-section{background-color:#222;}
 </style>
 </head>
 <body>
@@ -63,6 +105,22 @@ body{display:flex;height:100vh;font-family:-apple-system,BlinkMacSystemFont,'Seg
       <h3>Delivery Day</h3>
       <div class="filter-grid" id="day-filters"></div>
     </div>
+    <div class="filter-section" id="zone-section">
+      <h3>Delivery Zones</h3>
+      <div id="zone-list"></div>
+      <button id="add-zone-btn" onclick="openAddZoneModal()">+ Add Zone</button>
+    </div>
+  </div>
+  <div id="zone-edit-panel">
+    <div class="ze-row">
+      <input type="color" id="editing-color" value="#2196F3">
+      <input type="text" id="editing-name" placeholder="Zone name…">
+    </div>
+    <div class="ze-actions">
+      <button class="ze-done" onclick="doneEditingZone()">✓ Done</button>
+      <button class="ze-del" onclick="deleteEditingZone()">Delete Zone</button>
+    </div>
+    <p class="ze-tip">Click map to place points · Double-click to close polygon<br>Use Edit toolbar to adjust existing shapes</p>
   </div>
   <div id="progress-bar">
     <p>Geocoding addresses…</p>
@@ -70,9 +128,21 @@ body{display:flex;height:100vh;font-family:-apple-system,BlinkMacSystemFont,'Seg
     <p id="progress-text">0 / 0 geocoded</p>
   </div>
 </div>
+<div id="zone-modal">
+  <div id="zone-modal-box">
+    <h3>New Delivery Zone</h3>
+    <div class="mf"><label>Zone Name</label><input type="text" id="modal-zone-name" placeholder="e.g. Thursday Distro"></div>
+    <div class="mf"><label>Color</label><input type="color" id="modal-zone-color" value="#2196F3"></div>
+    <div class="ma">
+      <button class="mcancel" onclick="closeAddZoneModal()">Cancel</button>
+      <button class="mprimary" onclick="confirmAddZone()">Add &amp; Draw</button>
+    </div>
+  </div>
+</div>
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
 <script>
 // ─── RAW LOCATION DATA ────────────────────────────────────────────────────────
 // [company, location_override, address1, address2, city, state, zip, tags_csv]
@@ -110,6 +180,7 @@ const RAW = [
 ["Castle Island Brewing","Norwood","31 Astor Avenue","","Norwood","MA","02062","local-dlv,standard-cafe-cans-dlv,Wednesday",42.1688077,-71.1922712],
 ["Castle Manor Inn","","141 Essex Ave","","Gloucester","MA","01930","friday,local-dlv,standard-cafe",42.6145978,-70.687717],
 ["CB Fisk","","21 Kondelin Rd","","Gloucester","MA","01930","",42.5928017,-70.7267755],
+["Cafe Selah","","613 Centre St","","Boston","MA","02130","local-dlv,standard-cafe-cans-kegs,Wednesday",null,null],
 ["Cafe Services","Thermo Fisher Scientific","168 3rd Avenue","","Waltham","MA","02451","",42.3762385,-71.2355644],
 ["Cafe Services","Timberland","200 Domain Drive","","Stratham","NH","03885","",42.9748068,-70.8980372],
 ["Cafe Services","Schneider Electric","800 Federal Street","","Andover","MA","01810","",42.6787559,-71.1975192],
@@ -701,6 +772,254 @@ if (needGeocode.length > 0) {
   document.getElementById("stats-line").textContent =
     `${LOCATIONS.filter(l=>l.lat).length} shown · ${LOCATIONS.length} total`;
 }
+
+// ─── DELIVERY ZONES ───────────────────────────────────────────────────────────
+const ZONE_KEY = "acr_map_zones_v3";
+
+// Build GeoJSON from lat/lng pairs. Closes ring automatically.
+function _p(ll) {
+  const ring = ll.map(([a,b])=>[b,a]); ring.push(ring[0]);
+  return {type:"FeatureCollection",features:[{type:"Feature",properties:{},geometry:{type:"Polygon",coordinates:[ring]}}]};
+}
+// Multi-polygon: array of lat/lng arrays
+function _mp(rings) {
+  return {type:"FeatureCollection",features:rings.map(ll=>{
+    const ring=ll.map(([a,b])=>[b,a]); ring.push(ring[0]);
+    return {type:"Feature",properties:{},geometry:{type:"Polygon",coordinates:[ring]}};
+  })};
+}
+
+const ZONE_DEFAULTS = [
+  // ── Thursday Distro: Woburn · Reading · Wilmington · Burlington · Winchester · Lynnfield · Arlington north
+  {id:"thu-distro",name:"Thursday Distro",color:"#1565C0",visible:true,geojson:_p([
+    [42.413,-71.232],[42.468,-71.228],[42.510,-71.205],[42.582,-71.158],
+    [42.608,-71.105],[42.548,-71.020],[42.515,-71.020],[42.453,-71.052],[42.413,-71.103]
+  ])},
+  // ── Thursday Camberville: Cambridge + Somerville
+  {id:"thu-camb",name:"Thursday Camberville",color:"#42A5F5",visible:true,geojson:_p([
+    [42.410,-71.153],[42.415,-71.092],[42.398,-71.060],[42.376,-71.060],
+    [42.360,-71.073],[42.336,-71.058],[42.330,-71.095],[42.348,-71.148],[42.375,-71.150]
+  ])},
+  // ── Tuesday Downtown: Boston core + East Boston + Winthrop; PLUS N corridor (Andover/Newburyport/Salisbury)
+  {id:"tue-dtown",name:"Tuesday Downtown",color:"#E65100",visible:true,geojson:_mp([
+    [[42.402,-71.150],[42.402,-70.950],[42.345,-70.950],[42.325,-71.055],[42.325,-71.150]],
+    [[42.632,-71.182],[42.862,-71.182],[42.862,-70.785],[42.632,-70.785]]
+  ])},
+  // ── Monday West: Lexington · Concord · Maynard · Stow · Bolton · Milford
+  {id:"mon-west",name:"Monday West",color:"#B71C1C",visible:true,geojson:_p([
+    [42.480,-71.635],[42.480,-71.225],[42.125,-71.435],[42.125,-71.635]
+  ])},
+  // ── Monday North: Lowell + Billerica
+  {id:"mon-north",name:"Monday North",color:"#F44336",visible:true,geojson:_p([
+    [42.662,-71.380],[42.662,-71.225],[42.528,-71.225],[42.528,-71.380]
+  ])},
+  // ── Monday South: Foxborough · Norfolk · Sharon · Walpole · Norwood · Medfield
+  {id:"mon-south",name:"Monday South",color:"#EF5350",visible:true,geojson:_p([
+    [42.240,-71.435],[42.240,-71.165],[42.042,-71.165],[42.042,-71.435]
+  ])},
+  // ── Wednesday Metro: Newton · Brookline · Waltham · Needham · Weston (west of Route 9)
+  {id:"wed-metro",name:"Wednesday Metro",color:"#1B5E20",visible:true,geojson:_p([
+    [42.445,-71.348],[42.445,-71.178],[42.155,-71.178],[42.155,-71.348]
+  ])},
+  // ── Wednesday City South: S Boston · Fan Pier · Dorchester · JP · Charlestown · Brookline · Allston
+  {id:"wed-city-s",name:"Wednesday City South",color:"#388E3C",visible:true,geojson:_p([
+    [42.372,-71.178],[42.372,-71.028],[42.258,-71.028],[42.258,-71.178]
+  ])},
+  // ── Wednesday 1: S Shore + RI outliers (Weymouth · Quincy · Mansfield · N Attleborough · Smithfield RI · Franklin)
+  {id:"wed-1",name:"Wednesday 1",color:"#66BB6A",visible:true,geojson:_p([
+    [42.262,-71.580],[42.262,-70.908],[41.885,-70.908],[41.885,-71.580]
+  ])},
+  // ── Wednesday 2: Burlington MA / Route 128 N corridor
+  {id:"wed-2",name:"Wednesday 2",color:"#A5D6A7",visible:true,geojson:_p([
+    [42.528,-71.265],[42.528,-71.158],[42.462,-71.158],[42.462,-71.265]
+  ])},
+  // ── Friday North Shore: Wakefield/Melrose → Peabody/Danvers → Beverly/Salem → Manchester → Gloucester/Ipswich
+  {id:"fri-shore",name:"Friday North Shore",color:"#6A1B9A",visible:true,geojson:_p([
+    [42.436,-71.088],[42.462,-71.052],[42.490,-71.010],[42.492,-70.955],
+    [42.492,-70.840],[42.565,-70.800],[42.580,-70.748],[42.620,-70.615],
+    [42.650,-70.615],[42.695,-70.832],[42.650,-70.882],[42.600,-70.930],
+    [42.560,-70.968],[42.530,-71.012],[42.436,-71.088]
+  ])},
+  // ── Route 1 & Shipping: dispersed ship/pickup accounts — draw as needed
+  {id:"route-1",name:"Route 1 & Shipping",color:"#455A64",visible:true,geojson:null},
+  // ── Route 2 Clients: dispersed — draw as needed
+  {id:"route-2",name:"Route 2 Clients",color:"#78909C",visible:true,geojson:null},
+];
+
+let zones = [];
+let zoneLayers = {};
+let currentEditId = null;
+let drawCtrl = null;
+let editFG = null;
+
+function loadZones() {
+  try {
+    const s = JSON.parse(localStorage.getItem(ZONE_KEY));
+    zones = Array.isArray(s) ? s : JSON.parse(JSON.stringify(ZONE_DEFAULTS));
+  } catch(e) {
+    zones = JSON.parse(JSON.stringify(ZONE_DEFAULTS));
+  }
+}
+
+function saveZones() {
+  try { localStorage.setItem(ZONE_KEY, JSON.stringify(zones)); } catch(e) {}
+}
+
+function renderZoneLayers() {
+  Object.values(zoneLayers).forEach(fg=>{ try{fg.remove();}catch(e){} });
+  zoneLayers = {};
+  zones.forEach(zone=>{
+    const fg = L.featureGroup();
+    if (zone.geojson && zone.visible) {
+      try {
+        L.geoJSON(zone.geojson, {
+          style:{color:zone.color,weight:2.5,opacity:.8,fillColor:zone.color,fillOpacity:.12}
+        }).eachLayer(l=>fg.addLayer(l));
+      } catch(e) {}
+    }
+    zoneLayers[zone.id] = fg;
+    if (zone.visible) fg.addTo(map);
+  });
+}
+
+function renderZoneList() {
+  const list = document.getElementById("zone-list");
+  list.innerHTML = "";
+  zones.forEach(zone=>{
+    const hasGeo = zone.geojson && zone.geojson.features && zone.geojson.features.length > 0;
+    const item = document.createElement("div");
+    item.className = "zone-item";
+    item.innerHTML =
+      `<span class="zone-swatch" style="background:${zone.color}"></span>` +
+      `<span class="zone-name" title="${zone.name}">${zone.name}</span>` +
+      `<button class="zone-vis ${zone.visible?'on':''}" onclick="toggleZoneVis('${zone.id}')" title="${zone.visible?'Hide':'Show'}">${zone.visible?'●':'○'}</button>` +
+      `<button class="zone-edit-btn" onclick="startEditZone('${zone.id}')">${hasGeo?'Edit':'Draw'}</button>`;
+    list.appendChild(item);
+  });
+}
+
+function toggleZoneVis(id) {
+  const z = zones.find(x=>x.id===id); if (!z) return;
+  z.visible = !z.visible;
+  if (z.visible) { if(zoneLayers[id]) zoneLayers[id].addTo(map); }
+  else { if(zoneLayers[id]) zoneLayers[id].remove(); }
+  saveZones(); renderZoneList();
+}
+
+function startEditZone(id) {
+  if (currentEditId) finishEdit(false);
+  const zone = zones.find(x=>x.id===id); if (!zone) return;
+  currentEditId = id;
+
+  document.getElementById("zone-edit-panel").classList.add("active");
+  document.getElementById("editing-name").value = zone.name;
+  document.getElementById("editing-color").value = zone.color;
+
+  editFG = L.featureGroup().addTo(map);
+  if (zone.geojson) {
+    try {
+      L.geoJSON(zone.geojson, {
+        style:{color:zone.color,weight:2.5,opacity:.85,fillColor:zone.color,fillOpacity:.2}
+      }).eachLayer(l=>editFG.addLayer(l));
+    } catch(e) {}
+  }
+
+  if (zoneLayers[id]) zoneLayers[id].remove();
+
+  drawCtrl = new L.Control.Draw({
+    position:"topleft",
+    draw:{
+      polygon:{
+        allowIntersection:false,
+        showArea:false,
+        shapeOptions:{color:zone.color,fillColor:zone.color,fillOpacity:.2,weight:2.5,opacity:.85}
+      },
+      polyline:false, rectangle:false, circle:false, circlemarker:false, marker:false
+    },
+    edit:{ featureGroup:editFG }
+  });
+  map.addControl(drawCtrl);
+
+  if (editFG.getLayers().length > 0) {
+    try { map.fitBounds(editFG.getBounds(), {padding:[40,40]}); } catch(e) {}
+  }
+
+  map.on("draw:created", onZoneDrawCreated);
+  map.on("draw:edited",  onZoneEdited);
+  map.on("draw:deleted", onZoneEdited);
+}
+
+function onZoneDrawCreated(e) { editFG.addLayer(e.layer); snapshotZone(); }
+function onZoneEdited() { snapshotZone(); }
+
+function snapshotZone() {
+  if (!currentEditId || !editFG) return;
+  const zone = zones.find(x=>x.id===currentEditId); if (!zone) return;
+  const gj = editFG.toGeoJSON();
+  zone.geojson = (gj.features && gj.features.length > 0) ? gj : null;
+  saveZones();
+}
+
+function finishEdit(rerender) {
+  if (!currentEditId) return;
+  const zone = zones.find(x=>x.id===currentEditId);
+  if (zone && editFG) {
+    zone.name  = document.getElementById("editing-name").value.trim() || zone.name;
+    zone.color = document.getElementById("editing-color").value;
+    zone.geojson = (()=>{ const gj=editFG.toGeoJSON(); return (gj.features&&gj.features.length>0)?gj:null; })();
+    saveZones();
+  }
+  if (drawCtrl) { try{map.removeControl(drawCtrl);}catch(e){} drawCtrl=null; }
+  if (editFG)   { try{editFG.remove();}catch(e){} editFG=null; }
+  map.off("draw:created", onZoneDrawCreated);
+  map.off("draw:edited",  onZoneEdited);
+  map.off("draw:deleted", onZoneEdited);
+  document.getElementById("zone-edit-panel").classList.remove("active");
+  currentEditId = null;
+  if (rerender !== false) { renderZoneLayers(); renderZoneList(); }
+}
+
+function doneEditingZone() { finishEdit(true); }
+
+function deleteEditingZone() {
+  if (!currentEditId) return;
+  const zone = zones.find(x=>x.id===currentEditId); if (!zone) return;
+  if (!confirm(`Delete zone "${zone.name}"?`)) return;
+  zones = zones.filter(x=>x.id!==currentEditId);
+  saveZones();
+  finishEdit(false);
+  renderZoneLayers(); renderZoneList();
+}
+
+function openAddZoneModal() {
+  document.getElementById("modal-zone-name").value = "";
+  document.getElementById("modal-zone-color").value = "#2196F3";
+  document.getElementById("zone-modal").classList.add("open");
+  setTimeout(()=>document.getElementById("modal-zone-name").focus(), 50);
+}
+function closeAddZoneModal() {
+  document.getElementById("zone-modal").classList.remove("open");
+}
+function confirmAddZone() {
+  const name = document.getElementById("modal-zone-name").value.trim();
+  if (!name) { document.getElementById("modal-zone-name").focus(); return; }
+  const color = document.getElementById("modal-zone-color").value;
+  const id = "z_" + Date.now();
+  zones.push({id, name, color, visible:true, geojson:null});
+  saveZones(); closeAddZoneModal();
+  renderZoneLayers(); renderZoneList();
+  startEditZone(id);
+}
+
+document.getElementById("editing-color").addEventListener("input", function() {
+  if (!currentEditId || !editFG) return;
+  const c = this.value;
+  editFG.eachLayer(l=>{ if(l.setStyle) l.setStyle({color:c,fillColor:c}); });
+});
+
+loadZones();
+renderZoneLayers();
+renderZoneList();
 </script>
 </body>
 </html>
