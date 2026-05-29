@@ -26,8 +26,10 @@ body{display:flex;height:100vh;font-family:-apple-system,BlinkMacSystemFont,'Seg
 .filter-btn .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
 .filter-btn .count{margin-left:auto;font-size:10px;color:#666;font-variant-numeric:tabular-nums;}
 .filter-btn.active .count{color:#999;}
-#all-btn{grid-column:1/-1;background:#262626;justify-content:center;font-size:11.5px;font-weight:600;color:#bbb;padding:6px;}
-#all-btn.active{background:#3a3a3a;color:#fff;}
+#all-btn,#all-day-btn{grid-column:1/-1;background:#262626;justify-content:center;font-size:11.5px;font-weight:600;color:#bbb;padding:6px;}
+#all-btn.active,#all-day-btn.active{background:#3a3a3a;color:#fff;}
+#all-zone-btn{width:100%;background:#262626;border:1px solid #3a3a3a;border-radius:4px;color:#bbb;padding:5px 8px;font-size:11.5px;font-weight:600;cursor:pointer;margin-bottom:6px;text-align:center;font-family:inherit;}
+#all-zone-btn.active{background:#3a3a3a;color:#fff;border-color:#555;}
 #search-wrap{padding:8px 12px;border-bottom:1px solid #2a2a2a;flex-shrink:0;}
 #search-input{width:100%;background:#2a2a2a;border:1px solid #3a3a3a;border-radius:4px;color:#e0e0e0;padding:6px 10px;font-size:12px;outline:none;font-family:inherit;box-sizing:border-box;}
 #search-input::placeholder{color:#555;}
@@ -107,6 +109,7 @@ body{display:flex;height:100vh;font-family:-apple-system,BlinkMacSystemFont,'Seg
     </div>
     <div class="filter-section" id="zone-section">
       <h3>Delivery Zones</h3>
+      <button class="filter-btn active" id="all-zone-btn" onclick="toggleAllZones()">All Zones</button>
       <div id="zone-list"></div>
       <button id="add-zone-btn" onclick="openAddZoneModal()">+ Add Zone</button>
     </div>
@@ -595,7 +598,7 @@ function buildFilters() {
 
   // clear before rebuilding
   typeDiv.innerHTML = `<button class="filter-btn active" id="all-btn" onclick="toggleAll()">All Types</button>`;
-  dayDiv.innerHTML  = "";
+  dayDiv.innerHTML  = `<button class="filter-btn active" id="all-day-btn" onclick="toggleAllDays()">All Days</button>`;
 
   Object.entries(CATS).forEach(([name, meta]) => {
     const c = countBy(LOCATIONS, "category", name);
@@ -640,6 +643,30 @@ function toggleAll() {
   });
   btn.classList.toggle("active", !allOn);
   refreshMarkers();
+}
+
+function toggleAllDays() {
+  const btn = document.getElementById("all-day-btn");
+  const allOn = activeDays.size === FILTERABLE_DAYS.size;
+  document.querySelectorAll("[data-day]").forEach(b => {
+    if (allOn) { activeDays.delete(b.dataset.day); b.classList.remove("active"); }
+    else { activeDays.add(b.dataset.day); b.classList.add("active"); }
+  });
+  btn.classList.toggle("active", !allOn);
+  refreshMarkers();
+}
+
+function toggleAllZones() {
+  const btn = document.getElementById("all-zone-btn");
+  const allOn = zones.every(z => z.visible);
+  zones.forEach(z => {
+    z.visible = !allOn;
+    if (z.visible) { if (zoneLayers[z.id]) zoneLayers[z.id].addTo(map); }
+    else            { if (zoneLayers[z.id]) zoneLayers[z.id].remove(); }
+  });
+  btn.classList.toggle("active", !allOn);
+  saveZones();
+  renderZoneList();
 }
 
 function refreshMarkers() {
@@ -903,6 +930,9 @@ function toggleZoneVis(id) {
   z.visible = !z.visible;
   if (z.visible) { if(zoneLayers[id]) zoneLayers[id].addTo(map); }
   else { if(zoneLayers[id]) zoneLayers[id].remove(); }
+  // sync All Zones button
+  const allBtn = document.getElementById("all-zone-btn");
+  if (allBtn) allBtn.classList.toggle("active", zones.every(z=>z.visible));
   saveZones(); renderZoneList();
 }
 
